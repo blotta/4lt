@@ -16,7 +16,6 @@ def install_package(name):
     base_cmd = 'apt install'
     cmd = base_cmd + ' ' + str(name) + ' ' + '-y'
     logging.info("Instalando {}".format(name))
-    # execute_command(cmd)
     if sp.check_call(cmd.split()) != 0:
         logging.error("Instalação do pacote {} falhou".format(name))
         sys.exit(2)
@@ -40,7 +39,6 @@ def install_docker():
     url = 'https://get.docker.com'
     filepath = "get-docker.sh"
     request.urlretrieve(url, filename=filepath)
-    # execute_command('/bin/sh {}'.format(filepath))
     if sp.check_call('sh {}'.format(filepath).split()) != 0:
         logging.error("Instalação do Docker falhou")
         sys.exit(2)
@@ -73,7 +71,6 @@ def build_image(img_name):
         startfile_fd.write(STARTSH)
 
     # Executar docker build
-    # execute_command('docker build -t {} .'.format(img_name))
     sp.call('docker build -t {} .'.format(img_name).split())
 
 def run_instance(cont, img, args=None):
@@ -83,7 +80,6 @@ def run_instance(cont, img, args=None):
 
     if args != None:
         args_str = ' '.join(args)
-    # execute_command('docker run -d --name {} -p 80 {} {}'.format(cont, img, args_str))
     sp.check_call('docker run --name {} -d -p 80 {} {}'.format(cont, img, args_str), shell=True)
 
 
