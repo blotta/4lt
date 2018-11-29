@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 
 import subprocess as sp
-import shlex
 import os
 import sys
 import logging
@@ -75,7 +74,7 @@ def build_image(img_name):
 
 def run_instance(cont, img, args=None):
     if sp.call("docker inspect {}".format(cont), shell=True, stdout=sp.DEVNULL, stderr=sp.DEVNULL) == 0:
-        logging.info("Container {} já está criado")
+        logging.info("Container {} já está criado".format(cont))
         return
 
     if args != None:
