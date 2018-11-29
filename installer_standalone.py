@@ -11,41 +11,6 @@ import json
 logging.basicConfig(level=logging.DEBUG, format='%(levelname)s: %(message)s')
 
 
-def execute_command(cmd):
-    if type(cmd) == type([]):
-        cmd = ' '.join(cmd)
-
-    if type(cmd) != type(''):
-        raise TypeError
-
-    split_cmd = shlex.split(cmd)
-
-    print(split_cmd)
-    logging.debug("Executando comando '{}'".format(cmd))
-    proc = sp.Popen(split_cmd, stdout=sp.PIPE, stderr=sp.PIPE, shell=True)
-
-    while proc.poll() == None:
-        out = proc.stdout.readline().decode('utf-8')
-        if out != '':
-            logging.info(out.rstrip("\n\r"))
-            sys.stdout.flush()
-        err = proc.stderr.readline().decode('utf-8')
-        if err != '':
-            logging.info(err.rstrip("\n\r"))
-            sys.stderr.flush()
-
-    stdout, stderr = proc.communicate()
-    stdout = stdout.decode('utf-8').rstrip("\n\r")
-    stderr = stderr.decode('utf-8').rstrip("\n\r")
-
-    if proc.returncode != 0:
-        logging.error("Comando '{}' retornou erro: '{}'".format(cmd, stderr))
-        return False
-    else:
-        logging.debug("Comando '{}' executado com sucesso".format(cmd))
-        return True
-
-
 def install_package(name):
     sp.call('apt update'.split())
     base_cmd = 'apt install'
@@ -53,12 +18,12 @@ def install_package(name):
     logging.info("Instalando {}".format(name))
     # execute_command(cmd)
     if sp.check_call(cmd.split()) != 0:
-        logging.error("Instalação do Nginx falhou")
+        logging.error("Instalação do pacote {} falhou".format(name))
         sys.exit(2)
 
 def proxy_pass_nginx_config(fqdn, port):
     """Gera configuração de proxy de um domínio de entrada para uma porta no localhost"""
-    cfg = "server {\n" + \
+    cfg = "\nserver {\n" + \
     "\tlisten 80;\n" + \
     "\tserver_name {};\n".format(fqdn) + \
     "\tlocation / {\n" + \
@@ -68,6 +33,10 @@ def proxy_pass_nginx_config(fqdn, port):
     return cfg
 
 def install_docker():
+    if sp.call("which docker", shell=True, stdout=sp.DEVNULL) == 0:
+        logging.info("Docker já está instalado")
+        return
+
     url = 'https://get.docker.com'
     filepath = "get-docker.sh"
     request.urlretrieve(url, filename=filepath)
@@ -108,10 +77,14 @@ def build_image(img_name):
     sp.call('docker build -t {} .'.format(img_name).split())
 
 def run_instance(cont, img, args=None):
+    if sp.call("docker inspect {}".format(cont), shell=True, stdout=sp.DEVNULL, stderr=sp.DEVNULL) == 0:
+        logging.info("Container {} já está criado")
+        return
+
     if args != None:
         args_str = ' '.join(args)
     # execute_command('docker run -d --name {} -p 80 {} {}'.format(cont, img, args_str))
-    sp.call('docker run --name {} -d -p 80 {} {}'.format(cont, img, args_str), shell=True)
+    sp.check_call('docker run --name {} -d -p 80 {} {}'.format(cont, img, args_str), shell=True)
 
 
 # Instalar pacotes
@@ -144,44 +117,49 @@ CONTAINER_NAMES = ['app1', 'app2', 'app3']
 DOMAIN = 'dexter.com.br'
 
 if __name__ == "__main__":
-    # execute_command('./wait.sh')
-    # execute_command('./reterr.sh')
     # Confirmar root
     if os.geteuid() != 0:
         logging.error("Usuário precisa ser root")
         sys.exit(1)
 
-    #Instalar Docker
+    #Instalar servicos
+    logging.info("Instalando Docker")
     install_docker()
+    for p in pkgs:
+        logging.info("Instalando {}".format(p))
+        install_package(p)
 
-    # Instalar Nginx
-    install_package('nginx')
-
-    # # Criar imagem
+    # Criar imagem
+    logging.info("Criando imagem Docker")
     build_image(IMAGE_NAME)
 
-    ports = {}
     nginx_cfg = ''
 
-    # # Instanciar 3 containers diferentes (app1-3)
+    # Instanciar containers (app1-3)
     for cont in CONTAINER_NAMES:
+        logging.info("Criando container {}".format(cont))
         run_instance(cont, IMAGE_NAME, args=[cont])
 
+        fqdn = '{}.{}'.format(cont, DOMAIN)
+
         # Descobrir portas de acesso aos containers
-        ports[cont] = get_container_host_port(cont)
-        logging.info("Container {} tem porta {} no host".format(cont, ports[cont]))
+        port = get_container_host_port(cont)
 
         # Gerar configuracao nginx com base nas portas dos containers
-        nginx_cfg = nginx_cfg + "\n" + proxy_pass_nginx_config('{}.{}'.format(cont, DOMAIN), ports[cont])
+        nginx_cfg = nginx_cfg + proxy_pass_nginx_config(fqdn, port)
 
     # Gerar configuracao nginx com base nas portas dos containers
+    logging.info("Gerando configuração para o Nginx")
     with open('/etc/nginx/sites-available/4l-docker', 'w+') as f:
         f.write(nginx_cfg)
 
     # symlink
-    os.symlink('/etc/nginx/sites-available/4l-docker', '/etc/nginx/sites-enabled/4l-docker')
+    logging.info("Criando symlink da configuração do Nginx")
+    try:
+        os.symlink('/etc/nginx/sites-available/4l-docker', '/etc/nginx/sites-enabled/4l-docker')
+    except FileExistsError:
+        pass
 
     # restart service
+    logging.info("Reiniciando Nginx")
     sp.call('systemctl restart nginx'.split())
-
-
